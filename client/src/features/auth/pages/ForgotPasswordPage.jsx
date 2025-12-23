@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import collegeImg from "../../../assets/college-img.png";
 import eduGuardLogo from "../../../assets/eduGuard-logo.png";
+import ThemeToggle from "../../../core/theme/ThemeToggle";
 import { requestResetOtp, resetPassword, verifyResetOtp } from "../api/authApi";
 
 function EduGuardMark() {
@@ -28,27 +29,94 @@ export default function ForgotPasswordPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
 
-  const canRequest = useMemo(() => email.trim().length > 3, [email]);
+  const inputBaseClass =
+    "mt-2 w-full rounded-none border bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none transition-colors placeholder:text-slate-400 focus:ring-2 focus:ring-offset-0 focus-visible:outline-none dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500";
+
+  const inputClass = (hasError) =>
+    `${inputBaseClass} ${
+      hasError
+        ? "border-red-300 focus:border-red-500 focus:ring-red-500 dark:border-red-900/60"
+        : "border-slate-200 focus:border-indigo-600 focus:ring-indigo-600 dark:border-slate-700"
+    }`;
+
+  const emailOk = useMemo(
+    () => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()),
+    [email]
+  );
+
+  const passwordRules = useMemo(() => {
+    const pwd = newPassword;
+    return {
+      min: pwd.length >= 8,
+      lower: /[a-z]/.test(pwd),
+      upper: /[A-Z]/.test(pwd),
+      number: /\d/.test(pwd),
+      symbol: /[^A-Za-z0-9]/.test(pwd),
+    };
+  }, [newPassword]);
+
+  const passwordStrong = useMemo(
+    () => Object.values(passwordRules).every(Boolean),
+    [passwordRules]
+  );
+
+  const canRequest = useMemo(() => emailOk, [emailOk]);
   const canVerify = useMemo(() => /^\d{6}$/.test(otp.trim()), [otp]);
   const canReset = useMemo(() => {
     if (!resetToken) return false;
-    if (newPassword.length < 8) return false;
+    if (!passwordStrong) return false;
     if (newPassword !== confirmPassword) return false;
     return true;
-  }, [resetToken, newPassword, confirmPassword]);
+  }, [resetToken, passwordStrong, newPassword, confirmPassword]);
+
+  function applyServerFieldErrors(err) {
+    const serverErrors = err?.response?.data?.errors;
+    if (!Array.isArray(serverErrors) || !serverErrors.length) return false;
+
+    const nextFieldErrors = {};
+    for (const item of serverErrors) {
+      const key = Array.isArray(item?.path) ? item.path[0] : item?.path;
+      if (typeof key === "string" && !nextFieldErrors[key]) {
+        nextFieldErrors[key] = item?.message;
+      }
+    }
+
+    if (Object.keys(nextFieldErrors).length) {
+      setFieldErrors(nextFieldErrors);
+      return true;
+    }
+
+    return false;
+  }
 
   async function onRequestOtp(e) {
     e.preventDefault();
     setError("");
     setInfo("");
+    setFieldErrors({});
+
+    if (!emailOk) {
+      setFieldErrors({ email: "Enter a valid email." });
+      return;
+    }
+
     setBusy(true);
     try {
       await requestResetOtp(email.trim());
       setInfo("If the email exists, an OTP was sent.");
       setStep(2);
     } catch (err) {
-      setError(err?.response?.data?.message || "Failed to request OTP");
+      const mapped = applyServerFieldErrors(err);
+      if (!mapped) {
+        const firstFieldError = err?.response?.data?.errors?.[0]?.message;
+        setError(
+          firstFieldError ||
+            err?.response?.data?.message ||
+            "Failed to request OTP"
+        );
+      }
     } finally {
       setBusy(false);
     }
@@ -58,6 +126,17 @@ export default function ForgotPasswordPage() {
     e.preventDefault();
     setError("");
     setInfo("");
+    setFieldErrors({});
+
+    if (!emailOk) {
+      setFieldErrors({ email: "Enter a valid email." });
+      return;
+    }
+    if (!canVerify) {
+      setFieldErrors({ otp: "OTP must be 6 digits." });
+      return;
+    }
+
     setBusy(true);
     try {
       const data = await verifyResetOtp({
@@ -67,7 +146,13 @@ export default function ForgotPasswordPage() {
       setResetToken(data.resetToken);
       setStep(3);
     } catch (err) {
-      setError(err?.response?.data?.message || "Invalid OTP");
+      const mapped = applyServerFieldErrors(err);
+      if (!mapped) {
+        const firstFieldError = err?.response?.data?.errors?.[0]?.message;
+        setError(
+          firstFieldError || err?.response?.data?.message || "Invalid OTP"
+        );
+      }
     } finally {
       setBusy(false);
     }
@@ -77,13 +162,62 @@ export default function ForgotPasswordPage() {
     e.preventDefault();
     setError("");
     setInfo("");
+    setFieldErrors({});
+
+    if (!emailOk) {
+      setFieldErrors({ email: "Enter a valid email." });
+      return;
+    }
+    if (!resetToken) {
+      setError("Reset token is missing. Please verify OTP again.");
+      return;
+    }
+    if (!passwordRules.min) {
+      setFieldErrors({
+        newPassword: "Password must be at least 8 characters.",
+      });
+      return;
+    }
+    if (!passwordRules.lower) {
+      setFieldErrors({
+        newPassword: "Password must include a lowercase letter.",
+      });
+      return;
+    }
+    if (!passwordRules.upper) {
+      setFieldErrors({
+        newPassword: "Password must include an uppercase letter.",
+      });
+      return;
+    }
+    if (!passwordRules.number) {
+      setFieldErrors({ newPassword: "Password must include a number." });
+      return;
+    }
+    if (!passwordRules.symbol) {
+      setFieldErrors({ newPassword: "Password must include a symbol." });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setFieldErrors({ confirmPassword: "Passwords do not match." });
+      return;
+    }
+
     setBusy(true);
     try {
       await resetPassword({ email: email.trim(), resetToken, newPassword });
       setInfo("Password updated successfully. You can now log in.");
       setStep(4);
     } catch (err) {
-      setError(err?.response?.data?.message || "Failed to reset password");
+      const mapped = applyServerFieldErrors(err);
+      if (!mapped) {
+        const firstFieldError = err?.response?.data?.errors?.[0]?.message;
+        setError(
+          firstFieldError ||
+            err?.response?.data?.message ||
+            "Failed to reset password"
+        );
+      }
     } finally {
       setBusy(false);
     }
@@ -97,17 +231,20 @@ export default function ForgotPasswordPage() {
   ];
 
   return (
-    <div className="flex min-h-[100dvh] items-center bg-slate-100 p-4 sm:p-8 lg:p-10">
+    <div className="flex min-h-[100dvh] items-start bg-slate-100 px-4 py-6 sm:items-center sm:p-8 lg:p-10 dark:bg-slate-950">
       <div className="mx-auto w-full max-w-6xl">
-        <div className="grid w-full overflow-hidden rounded-none border border-slate-200 bg-white shadow-lg lg:min-h-[min(640px,calc(100dvh-6rem))] lg:grid-cols-2">
+        <div className="grid w-full overflow-hidden rounded-none border border-slate-200 bg-white shadow-lg lg:min-h-[min(640px,calc(100dvh-6rem))] lg:grid-cols-2 dark:border-slate-800 dark:bg-slate-900 dark:shadow-none">
           <div className="p-6 sm:p-10 lg:p-12">
             <div className="mx-auto max-w-md">
-              <EduGuardMark />
+              <div className="flex items-center justify-between gap-4">
+                <EduGuardMark />
+                <ThemeToggle />
+              </div>
 
-              <h1 className="mt-6 text-2xl font-semibold tracking-tight text-slate-900 sm:mt-8 sm:text-3xl">
+              <h1 className="mt-6 text-2xl font-semibold tracking-tight text-slate-900 sm:mt-8 sm:text-3xl dark:text-slate-50">
                 Forgot password
               </h1>
-              <p className="mt-2 text-sm text-slate-500">
+              <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">
                 Reset using an email OTP.
               </p>
 
@@ -122,11 +259,15 @@ export default function ForgotPasswordPage() {
                     const circleClass =
                       done || current
                         ? "border-indigo-600 bg-indigo-600 text-white"
-                        : "border-slate-300 bg-white text-slate-500";
+                        : "border-slate-300 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-400";
                     const labelClass =
-                      done || current ? "text-slate-700" : "text-slate-500";
+                      done || current
+                        ? "text-slate-700 dark:text-slate-200"
+                        : "text-slate-500 dark:text-slate-400";
                     const connectorClass =
-                      visualStep > s.id ? "bg-indigo-200" : "bg-slate-200";
+                      visualStep > s.id
+                        ? "bg-indigo-200 dark:bg-indigo-900/40"
+                        : "bg-slate-200 dark:bg-slate-800";
 
                     return (
                       <div key={s.id} className="flex items-center sm:flex-1">
@@ -155,7 +296,7 @@ export default function ForgotPasswordPage() {
                 </div>
 
                 {step === 4 && (
-                  <p className="mt-2 text-xs text-slate-500">
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                     Completed. You can now log in.
                   </p>
                 )}
@@ -163,7 +304,7 @@ export default function ForgotPasswordPage() {
 
               {error && (
                 <div
-                  className="mt-6 rounded-none border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+                  className="mt-6 break-words rounded-none border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200"
                   role="alert"
                   aria-live="polite"
                 >
@@ -172,7 +313,7 @@ export default function ForgotPasswordPage() {
               )}
               {info && (
                 <div
-                  className="mt-6 rounded-none border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-700"
+                  className="mt-6 break-words rounded-none border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-700 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-200"
                   role="status"
                   aria-live="polite"
                 >
@@ -188,7 +329,7 @@ export default function ForgotPasswordPage() {
                   <div>
                     <label
                       htmlFor="email"
-                      className="text-xs font-semibold text-slate-700"
+                      className="text-xs font-semibold text-slate-700 dark:text-slate-200"
                     >
                       Email
                     </label>
@@ -196,22 +337,39 @@ export default function ForgotPasswordPage() {
                       id="email"
                       name="email"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={(e) => {
+                        setEmail(e.target.value);
+                        if (error) setError("");
+                        if (fieldErrors.email)
+                          setFieldErrors((prev) => ({ ...prev, email: "" }));
+                      }}
                       placeholder="Enter your registered email"
-                      className="mt-2 w-full rounded-none border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none transition-colors placeholder:text-slate-400 focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600 focus:ring-offset-0 focus-visible:outline-none"
+                      className={inputClass(Boolean(fieldErrors.email))}
                       autoComplete="email"
+                      aria-invalid={Boolean(fieldErrors.email)}
+                      aria-describedby={
+                        fieldErrors.email ? "email-error" : undefined
+                      }
                     />
+                    {fieldErrors.email && (
+                      <p
+                        id="email-error"
+                        className="mt-2 text-xs text-red-600 dark:text-red-300"
+                      >
+                        {fieldErrors.email}
+                      </p>
+                    )}
                   </div>
                   <button
                     type="submit"
                     disabled={!canRequest || busy}
-                    className="w-full rounded-none bg-indigo-600 px-4 py-3.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="w-full rounded-none bg-indigo-600 px-4 py-3.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-60 dark:focus-visible:ring-offset-slate-900"
                   >
                     {busy ? "Sending…" : "Send OTP"}
                   </button>
                   <Link
                     to="/login"
-                    className="block text-center text-sm font-medium text-indigo-600 transition-colors hover:text-indigo-700"
+                    className="block text-center text-sm font-medium text-indigo-600 transition-colors hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
                   >
                     Back to login
                   </Link>
@@ -223,7 +381,7 @@ export default function ForgotPasswordPage() {
                   <div>
                     <label
                       htmlFor="otp"
-                      className="text-xs font-semibold text-slate-700"
+                      className="text-xs font-semibold text-slate-700 dark:text-slate-200"
                     >
                       OTP
                     </label>
@@ -231,28 +389,45 @@ export default function ForgotPasswordPage() {
                       id="otp"
                       name="otp"
                       value={otp}
-                      onChange={(e) => setOtp(e.target.value)}
+                      onChange={(e) => {
+                        setOtp(e.target.value);
+                        if (error) setError("");
+                        if (fieldErrors.otp)
+                          setFieldErrors((prev) => ({ ...prev, otp: "" }));
+                      }}
                       placeholder="Enter 6-digit OTP"
-                      className="mt-2 w-full rounded-none border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none transition-colors placeholder:text-slate-400 focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600 focus:ring-offset-0 focus-visible:outline-none"
+                      className={inputClass(Boolean(fieldErrors.otp))}
                       inputMode="numeric"
                       maxLength={6}
                       autoComplete="one-time-code"
+                      aria-invalid={Boolean(fieldErrors.otp)}
+                      aria-describedby={
+                        fieldErrors.otp ? "otp-error" : undefined
+                      }
                     />
-                    <p className="mt-2 text-xs text-slate-500">
+                    {fieldErrors.otp && (
+                      <p
+                        id="otp-error"
+                        className="mt-2 text-xs text-red-600 dark:text-red-300"
+                      >
+                        {fieldErrors.otp}
+                      </p>
+                    )}
+                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                       OTP expires in 10 minutes.
                     </p>
                   </div>
                   <button
                     type="submit"
                     disabled={!canVerify || busy}
-                    className="w-full rounded-none bg-indigo-600 px-4 py-3.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="w-full rounded-none bg-indigo-600 px-4 py-3.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-60 dark:focus-visible:ring-offset-slate-900"
                   >
                     {busy ? "Verifying…" : "Verify OTP"}
                   </button>
                   <button
                     type="button"
                     onClick={() => setStep(1)}
-                    className="w-full rounded-none border border-slate-200 bg-white px-4 py-3.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                    className="w-full rounded-none border border-slate-200 bg-white px-4 py-3.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900 dark:focus-visible:ring-offset-slate-900"
                   >
                     Change email
                   </button>
@@ -264,7 +439,7 @@ export default function ForgotPasswordPage() {
                   <div>
                     <label
                       htmlFor="newPassword"
-                      className="text-xs font-semibold text-slate-700"
+                      className="text-xs font-semibold text-slate-700 dark:text-slate-200"
                     >
                       New password
                     </label>
@@ -272,17 +447,47 @@ export default function ForgotPasswordPage() {
                       id="newPassword"
                       name="newPassword"
                       value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="Minimum 8 characters"
+                      onChange={(e) => {
+                        setNewPassword(e.target.value);
+                        if (error) setError("");
+                        if (fieldErrors.newPassword)
+                          setFieldErrors((prev) => ({
+                            ...prev,
+                            newPassword: "",
+                          }));
+                      }}
+                      placeholder="Use a strong password"
                       type="password"
-                      className="mt-2 w-full rounded-none border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none transition-colors placeholder:text-slate-400 focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600 focus:ring-offset-0 focus-visible:outline-none"
+                      className={inputClass(Boolean(fieldErrors.newPassword))}
                       autoComplete="new-password"
+                      aria-invalid={Boolean(fieldErrors.newPassword)}
+                      aria-describedby={
+                        fieldErrors.newPassword
+                          ? "newPassword-error"
+                          : "newPassword-help"
+                      }
                     />
+                    {fieldErrors.newPassword ? (
+                      <p
+                        id="newPassword-error"
+                        className="mt-2 text-xs text-red-600 dark:text-red-300"
+                      >
+                        {fieldErrors.newPassword}
+                      </p>
+                    ) : (
+                      <p
+                        id="newPassword-help"
+                        className="mt-2 text-xs text-slate-500 dark:text-slate-400"
+                      >
+                        Must include: 8+ chars, uppercase, lowercase, number,
+                        symbol.
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label
                       htmlFor="confirmPassword"
-                      className="text-xs font-semibold text-slate-700"
+                      className="text-xs font-semibold text-slate-700 dark:text-slate-200"
                     >
                       Confirm password
                     </label>
@@ -290,22 +495,48 @@ export default function ForgotPasswordPage() {
                       id="confirmPassword"
                       name="confirmPassword"
                       value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      onChange={(e) => {
+                        setConfirmPassword(e.target.value);
+                        if (error) setError("");
+                        if (fieldErrors.confirmPassword)
+                          setFieldErrors((prev) => ({
+                            ...prev,
+                            confirmPassword: "",
+                          }));
+                      }}
                       placeholder="Re-enter new password"
                       type="password"
-                      className="mt-2 w-full rounded-none border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none transition-colors placeholder:text-slate-400 focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600 focus:ring-offset-0 focus-visible:outline-none"
+                      className={inputClass(
+                        Boolean(fieldErrors.confirmPassword)
+                      )}
                       autoComplete="new-password"
+                      aria-invalid={Boolean(fieldErrors.confirmPassword)}
+                      aria-describedby={
+                        fieldErrors.confirmPassword
+                          ? "confirmPassword-error"
+                          : undefined
+                      }
                     />
-                    {confirmPassword && confirmPassword !== newPassword && (
-                      <p className="mt-2 text-xs text-red-600">
-                        Passwords do not match.
+                    {fieldErrors.confirmPassword && (
+                      <p
+                        id="confirmPassword-error"
+                        className="mt-2 text-xs text-red-600 dark:text-red-300"
+                      >
+                        {fieldErrors.confirmPassword}
                       </p>
                     )}
+                    {!fieldErrors.confirmPassword &&
+                      confirmPassword &&
+                      confirmPassword !== newPassword && (
+                        <p className="mt-2 text-xs text-red-600 dark:text-red-300">
+                          Passwords do not match.
+                        </p>
+                      )}
                   </div>
                   <button
                     type="submit"
                     disabled={!canReset || busy}
-                    className="w-full rounded-none bg-indigo-600 px-4 py-3.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="w-full rounded-none bg-indigo-600 px-4 py-3.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-60 dark:focus-visible:ring-offset-slate-900"
                   >
                     {busy ? "Updating…" : "Reset password"}
                   </button>
@@ -316,7 +547,7 @@ export default function ForgotPasswordPage() {
                 <div className="mt-8 sm:mt-10">
                   <Link
                     to="/login"
-                    className="inline-flex w-full items-center justify-center rounded-none bg-indigo-600 px-4 py-3.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700"
+                    className="inline-flex w-full items-center justify-center rounded-none bg-indigo-600 px-4 py-3.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900"
                   >
                     Go to login
                   </Link>
@@ -329,7 +560,7 @@ export default function ForgotPasswordPage() {
             <img
               src={collegeImg}
               alt="College campus"
-              className="h-full w-full object-cover filter saturate-110 contrast-110 brightness-105"
+              className="h-full w-full object-cover filter saturate-110 contrast-110 brightness-105 dark:saturate-100 dark:contrast-125 dark:brightness-75"
               loading="lazy"
               decoding="async"
             />

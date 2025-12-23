@@ -12,7 +12,11 @@ body,
   height: 100%;
 }
 
+html {
+  color-scheme: light dark;
+}
+
 body {
   margin: 0;
-  @apply font-sans antialiased text-slate-900;
+  @apply bg-slate-100 font-sans antialiased text-slate-900 dark:bg-slate-950 dark:text-slate-100;
 }
