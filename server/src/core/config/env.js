@@ -27,6 +27,10 @@ export const env = {
     secure: String(process.env.SMTP_SECURE ?? "true") === "true",
     user: process.env.SMTP_USER ?? "",
     pass: process.env.SMTP_PASS ?? "",
-    from: process.env.MAIL_FROM ?? "EduGuard <no-reply@eduguard.local>",
+    from:
+      process.env.MAIL_FROM ??
+      (process.env.SMTP_USER
+        ? `EduGuard Security <${process.env.SMTP_USER}>`
+        : "EduGuard <no-reply@eduguard.local>"),
   },
 };

@@ -19,9 +19,16 @@ function validate(schema) {
   return (req, res, next) => {
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Validation error" });
+      const errors = parsed.error.issues.map((issue) => ({
+        path: issue.path.join("."),
+        message: issue.message,
+      }));
+
+      return res.status(400).json({
+        success: false,
+        message: errors[0]?.message ?? "Validation error",
+        errors,
+      });
     }
     req.body = parsed.data;
     next();

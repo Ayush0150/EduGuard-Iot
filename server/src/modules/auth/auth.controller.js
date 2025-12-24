@@ -29,8 +29,19 @@ export const postLogin = asyncHandler(async (req, res) => {
 });
 
 export const postRequestOtp = asyncHandler(async (req, res) => {
-  await requestPasswordResetOtp(req.body);
-  res.json({ success: true, message: "If the email exists, an OTP was sent." });
+  const result = await requestPasswordResetOtp(req.body);
+  if (result && result.ok === false) {
+    return res.status(result.status ?? 500).json({
+      success: false,
+      message: result.message ?? "Failed to send OTP",
+    });
+  }
+
+  return res.json({
+    success: true,
+    message:
+      "If an account exists for this email, a one-time code has been sent.",
+  });
 });
 
 export const postVerifyOtp = asyncHandler(async (req, res) => {

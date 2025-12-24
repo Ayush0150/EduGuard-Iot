@@ -4,6 +4,7 @@ import express from "express";
 import { env } from "./core/config/env.js";
 import { errorHandler } from "./core/middlewares/errorHandler.js";
 import { notFound } from "./core/middlewares/notFound.js";
+import { adminRouter } from "./modules/admin/admin.routes.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
 
 export function createApp() {
@@ -22,6 +23,7 @@ export function createApp() {
 
   app.get("/health", (req, res) => res.json({ ok: true }));
   app.use("/api/v1/auth", authRouter);
+  app.use("/api/v1/admin", adminRouter);
 
   app.use(notFound);
   app.use(errorHandler);
